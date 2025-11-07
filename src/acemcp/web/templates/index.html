@@ -281,6 +281,11 @@
                 wsConnected: false,
                 ws: null,
                 logIdCounter: 0,
+                wsReconnectAttempts: 0,
+                wsMaxReconnectAttempts: 10,
+                wsReconnectDelay: 1000, // Initial delay: 1 second
+                wsReconnectTimer: null,
+                wsManualClose: false,
                 // Tool debugger state
                 selectedTool: 'search_context',
                 toolArgs: {
@@ -384,10 +389,23 @@
                 },
 
                 connectWebSocket() {
+                    // Clear any pending reconnect timer
+                    if (this.wsReconnectTimer) {
+                        clearTimeout(this.wsReconnectTimer);
+                        this.wsReconnectTimer = null;
+                    }
+
                     // Close existing connection if any
                     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
                         console.log('Closing existing WebSocket connection');
+                        this.wsManualClose = true;
                         this.ws.close();
+                    }
+
+                    // Check if max reconnect attempts reached
+                    if (this.wsReconnectAttempts >= this.wsMaxReconnectAttempts) {
+                        console.warn('Max WebSocket reconnect attempts reached. Please refresh the page.');
+                        return;
                     }
 
                     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -397,6 +415,9 @@
 
                     this.ws.onopen = () => {
                         this.wsConnected = true;
+                        this.wsReconnectAttempts = 0; // Reset on successful connection
+                        this.wsReconnectDelay = 1000; // Reset delay
+                        this.wsManualClose = false;
                         console.log('WebSocket connected');
                     };
 
@@ -416,15 +437,42 @@
                         });
                     };
 
-                    this.ws.onclose = () => {
+                    this.ws.onclose = (event) => {
                         this.wsConnected = false;
-                        console.log('WebSocket disconnected, reconnecting...');
-                        setTimeout(() => this.connectWebSocket(), 3000);
+
+                        // Don't reconnect if manually closed or normal closure
+                        if (this.wsManualClose || event.code === 1000) {
+                            console.log('WebSocket closed normally');
+                            return;
+                        }
+
+                        // Increment reconnect attempts
+                        this.wsReconnectAttempts++;
+
+                        // Calculate exponential backoff delay (max 30 seconds)
+                        const delay = Math.min(this.wsReconnectDelay * Math.pow(1.5, this.wsReconnectAttempts - 1), 30000);
+
+                        console.log(`WebSocket disconnected (attempt ${this.wsReconnectAttempts}/${this.wsMaxReconnectAttempts}), reconnecting in ${delay}ms...`);
+
+                        this.wsReconnectTimer = setTimeout(() => this.connectWebSocket(), delay);
                     };
 
                     this.ws.onerror = (error) => {
                         console.error('WebSocket error:', error);
                     };
+                },
+
+                disconnectWebSocket() {
+                    this.wsManualClose = true;
+                    if (this.wsReconnectTimer) {
+                        clearTimeout(this.wsReconnectTimer);
+                        this.wsReconnectTimer = null;
+                    }
+                    if (this.ws) {
+                        this.ws.close();
+                        this.ws = null;
+                    }
+                    this.wsConnected = false;
                 },
 
                 clearLogs() {

@@ -172,15 +172,16 @@ def create_app() -> FastAPI:
         await websocket.accept()
         queue: asyncio.Queue = asyncio.Queue()
         log_broadcaster.add_client(queue)
+        logger.debug("WebSocket client connected")
 
         try:
             while True:
                 log_message = await queue.get()
                 await websocket.send_text(log_message)
         except WebSocketDisconnect:
-            pass
-        except Exception:
-            logger.exception("WebSocket error")
+            logger.debug("WebSocket client disconnected normally")
+        except Exception as e:
+            logger.warning(f"WebSocket error: {e}")
         finally:
             log_broadcaster.remove_client(queue)
 

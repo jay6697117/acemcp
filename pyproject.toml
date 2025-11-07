@@ -1,7 +1,7 @@
 [project]
 name = "acemcp"
-version = "0.1.3"
-description = "Add your description here"
+version = "0.1.4"
+description = "MCP server for codebase indexing and semantic search with multi-encoding support and .gitignore integration"
 readme = "README.md"
 authors = [
     { name = "wmymz", email = "wmymz@icloud.com" }
@@ -16,6 +16,7 @@ dependencies = [
     "uvicorn[standard]>=0.34.0",
     "toml>=0.10.2",
     "websockets>=14.1",
+    "pathspec>=0.12.1",
 ]
 
 [project.scripts]

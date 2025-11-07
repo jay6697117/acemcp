@@ -47,7 +47,7 @@ async def list_tools() -> list[Tool]:
 
 
 @app.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[dict]:
+async def call_tool(name: str, arguments: dict) -> dict:
     """Handle tool calls.
 
     Args:
@@ -62,7 +62,7 @@ async def call_tool(name: str, arguments: dict) -> list[dict]:
     if name == "search_context":
         return await search_context_tool(arguments)
 
-    return [{"type": "text", "text": f"Unknown tool: {name}"}]
+    return {"type": "text", "text": f"Unknown tool: {name}"}
 
 
 async def run_web_server(port: int) -> None:
@@ -72,7 +72,14 @@ async def run_web_server(port: int) -> None:
         port: Port to run the web server on
     """
     web_app = create_app()
-    config_uvicorn = uvicorn.Config(web_app, host="0.0.0.0", port=port, log_level="info")
+    # Set log_level to "warning" to reduce WebSocket connection noise
+    config_uvicorn = uvicorn.Config(
+        web_app,
+        host="0.0.0.0",
+        port=port,
+        log_level="warning",
+        access_log=False  # Disable access log to reduce noise
+    )
     server = uvicorn.Server(config_uvicorn)
     await server.serve()
 

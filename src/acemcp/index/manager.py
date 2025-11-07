@@ -8,7 +8,44 @@ import os
 from pathlib import Path
 
 import httpx
+import pathspec
 from loguru import logger
+
+
+def read_file_with_encoding(file_path: Path) -> str:
+    """Read file content with automatic encoding detection.
+
+    Tries multiple encodings in order: utf-8, gbk, gb2312, latin-1.
+
+    Args:
+        file_path: Path to the file to read
+
+    Returns:
+        File content as string
+
+    Raises:
+        Exception: If file cannot be read with any supported encoding
+    """
+    encodings = ["utf-8", "gbk", "gb2312", "latin-1"]
+
+    for encoding in encodings:
+        try:
+            with file_path.open("r", encoding=encoding) as f:
+                content = f.read()
+            logger.debug(f"Successfully read {file_path} with encoding: {encoding}")
+            return content
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    # If all encodings fail, try with errors='ignore'
+    try:
+        with file_path.open("r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+        logger.warning(f"Read {file_path} with utf-8 and errors='ignore' (some characters may be lost)")
+        return content
+    except Exception as e:
+        logger.error(f"Failed to read {file_path} with any encoding: {e}")
+        raise
 
 
 def calculate_blob_name(path: str, content: str) -> str:
@@ -64,6 +101,30 @@ class IndexManager:
         """
         return str(Path(path).resolve()).replace("\\", "/")
 
+    def _load_gitignore(self, root_path: Path) -> pathspec.PathSpec | None:
+        """Load and parse .gitignore file from project root.
+
+        Args:
+            root_path: Root path of the project
+
+        Returns:
+            PathSpec object if .gitignore exists, None otherwise
+        """
+        gitignore_path = root_path / ".gitignore"
+        if not gitignore_path.exists():
+            logger.debug(f"No .gitignore found at {gitignore_path}")
+            return None
+
+        try:
+            with gitignore_path.open("r", encoding="utf-8") as f:
+                patterns = f.read().splitlines()
+            spec = pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+            logger.info(f"Loaded .gitignore with {len(patterns)} patterns from {gitignore_path}")
+            return spec
+        except Exception as e:
+            logger.warning(f"Failed to load .gitignore from {gitignore_path}: {e}")
+            return None
+
     async def _retry_request(self, func, max_retries: int = 3, retry_delay: float = 1.0, *args, **kwargs):
         """Retry an async function with exponential backoff.
 
@@ -100,12 +161,13 @@ class IndexManager:
 
         raise last_exception
 
-    def _should_exclude(self, path: Path, root_path: Path) -> bool:
-        """Check if a path should be excluded based on exclude patterns.
+    def _should_exclude(self, path: Path, root_path: Path, gitignore_spec: pathspec.PathSpec | None = None) -> bool:
+        """Check if a path should be excluded based on exclude patterns and .gitignore.
 
         Args:
             path: Path to check
             root_path: Root path of the project
+            gitignore_spec: PathSpec object from .gitignore (optional)
 
         Returns:
             True if path should be excluded, False otherwise
@@ -115,6 +177,18 @@ class IndexManager:
             path_str = str(relative_path)
             path_parts = relative_path.parts
 
+            # Check .gitignore patterns first
+            if gitignore_spec is not None:
+                # Use forward slashes for gitignore matching
+                path_str_forward = path_str.replace("\\", "/")
+                # Add trailing slash for directories
+                if path.is_dir():
+                    path_str_forward += "/"
+                if gitignore_spec.match_file(path_str_forward):
+                    logger.debug(f"Excluded by .gitignore: {path_str_forward}")
+                    return True
+
+            # Check exclude_patterns
             for pattern in self.exclude_patterns:
                 # Check if pattern matches any part of the path
                 for part in path_parts:
@@ -214,20 +288,23 @@ class IndexManager:
             msg = f"Project root path does not exist: {project_root_path}"
             raise FileNotFoundError(msg)
 
+        # Load .gitignore if exists
+        gitignore_spec = self._load_gitignore(root_path)
+
         for dirpath, dirnames, filenames in os.walk(root_path):
             current_dir = Path(dirpath)
 
             # Filter out excluded directories to prevent os.walk from descending into them
             dirnames[:] = [
                 d for d in dirnames
-                if not self._should_exclude(current_dir / d, root_path)
+                if not self._should_exclude(current_dir / d, root_path, gitignore_spec)
             ]
 
             for filename in filenames:
                 file_path = current_dir / filename
 
                 # Check if file should be excluded
-                if self._should_exclude(file_path, root_path):
+                if self._should_exclude(file_path, root_path, gitignore_spec):
                     excluded_count += 1
                     logger.debug(f"Excluded file: {file_path.relative_to(root_path)}")
                     continue
@@ -237,8 +314,7 @@ class IndexManager:
 
                 try:
                     relative_path = file_path.relative_to(root_path)
-                    with file_path.open("r", encoding="utf-8") as f:
-                        content = f.read()
+                    content = read_file_with_encoding(file_path)
 
                     # Split file if necessary
                     file_blobs = self._split_file_content(str(relative_path), content)

@@ -8,7 +8,7 @@ from acemcp.config import get_config
 from acemcp.index import IndexManager
 
 
-async def search_context_tool(arguments: dict[str, Any]) -> list[dict[str, Any]]:
+async def search_context_tool(arguments: dict[str, Any]) -> dict[str, Any]:
     """Search for code context based on query.
 
     Args:
@@ -17,17 +17,17 @@ async def search_context_tool(arguments: dict[str, Any]) -> list[dict[str, Any]]
             - query: Search query string
 
     Returns:
-        List containing search results
+        Dictionary containing search results
     """
     try:
         project_root_path = arguments.get("project_root_path")
         query = arguments.get("query")
 
         if not project_root_path:
-            return [{"type": "text", "text": "Error: project_root_path is required"}]
+            return {"type": "text", "text": "Error: project_root_path is required"}
 
         if not query:
-            return [{"type": "text", "text": "Error: query is required"}]
+            return {"type": "text", "text": "Error: query is required"}
 
         logger.info(f"Tool invoked: search_context for project {project_root_path} with query: {query}")
 
@@ -43,9 +43,9 @@ async def search_context_tool(arguments: dict[str, Any]) -> list[dict[str, Any]]
         )
         result = await index_manager.search_context(project_root_path, query)
 
-        return [{"type": "text", "text": result}]
+        return {"type": "text", "text": result}
 
     except Exception as e:
         logger.exception("Error in search_context_tool")
-        return [{"type": "text", "text": f"Error: {e!s}"}]
+        return {"type": "text", "text": f"Error: {e!s}"}
 

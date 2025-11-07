@@ -8,9 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+venv
 
-# Acemcp specific
-.acemcp_index/
-.acemcp_index_dev/
-.secrets.toml
-settings.local.toml
+# ai
+.cunzhi-memory/
